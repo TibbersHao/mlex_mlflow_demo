@@ -1,22 +1,35 @@
-import mlflow.pytorch
+import mlflow.pyfunc
 import torch
+import os
+from dotenv import load_dotenv
 
-mlflow.set_tracking_uri("http://localhost:5000")
+# Load environment variables from .env file
+load_dotenv()
+
+# Access the environment variables
+mlflow_port = os.getenv("MLFLOW_PORT")
+
+mlflow.set_tracking_uri(f"http://127.0.0.1:{mlflow_port}")
+
+# Sample parameters for testing
+params = {
+    "num_layers": 5,
+    "max_dilation": 10,
+    "num_epochs": 3,
+}
+
 # Load your PyTorch models
-model1 = torch.load("models/uid0013_MSDNet.pt")
-model2 = torch.load("models/uid0014_MSDNet.pt")
-model3 = torch.load("models/uid0015_TUNet.pt")
+model = torch.load("models/pytest2/pytest2_MSDNet1.pt")
 
-print(type(model1.items()))
+print(type(model.items()))
+
 # Start an MLflow run
 with mlflow.start_run():
 
-    # Log the first PyTorch model with versioning and an alias
-    mlflow.pytorch.log_model(model1, "msdnet", registered_model_name="msdnet_maxdil")
-    mlflow.pytorch.log_model(model1, "msdnet", registered_model_name="msdnet_customdil")
-    mlflow.pytorch.log_model(model2, "tunet", registered_model_name="tunet)
+    model_info = mlflow.pyfunc.log_model(
+        artifact_path = 'models/pytest2/',
+        python_model = model
+    )
 
     # Create aliases for the models
-    mlflow.create_model_version("msdnet", "1", "max_dilation")
-    mlflow.create_model_version("msdnet", "1", "custom_dilation")
-    mlflow.create_model_version("tunet", "1", "development")
+    # mlflow.create_model_version("msdnet", "1", "max_dilation")
