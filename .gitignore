@@ -1,3 +1,4 @@
 models/
 mlruns/
 mlartifacts/
+.env
