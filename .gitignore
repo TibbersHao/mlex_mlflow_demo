@@ -2,3 +2,8 @@ models/
 mlruns/
 mlartifacts/
 .env
+lightning_logs/
+*.ckpt
+dataset/
+.DS_Store
+dlsia_models/

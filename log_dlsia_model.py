@@ -12,11 +12,11 @@ mlflow_port = os.getenv("MLFLOW_PORT")
 mlflow.set_tracking_uri(f"http://127.0.0.1:{mlflow_port}")
 
 # Sample parameters for testing
-params = {
-    "num_layers": 5,
-    "max_dilation": 10,
-    "num_epochs": 3,
-}
+# params = {
+#     "num_layers": 5,
+#     "max_dilation": 10,
+#     "num_epochs": 3,
+# }
 
 # Load your PyTorch models
 model = torch.load("models/pytest2/pytest2_MSDNet1.pt")
