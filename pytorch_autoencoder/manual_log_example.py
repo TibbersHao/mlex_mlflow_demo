@@ -1,5 +1,5 @@
 #
-# Trains an MNIST digit recognizer using PyTorch Lightning,
+# Trains an MNIST Autoencoder using PyTorch Lightning,
 # and uses MLflow to log metrics, params and artifacts
 # NOTE: This example requires you to first install
 # pytorch-lightning (using pip install pytorch-lightning)
@@ -17,8 +17,11 @@ from lightning.pytorch.cli import LightningCLI
 from torch.nn import functional as F
 from torch.utils.data import DataLoader, random_split
 from torchvision import datasets, transforms
+from dotenv import load_dotenv
 
 import mlflow.pytorch
+from mlflow.tracking import MlflowClient
+from mlflow.models import infer_signature
 
 
 class MNISTDataModule(L.LightningDataModule):
@@ -126,7 +129,7 @@ class Autoencoder(L.LightningModule):
         x = x.view(x.size(0), -1)
         latent_vector = self.encoder(x)
         reconstructed = self.decoder(latent_vector)
-        # reconstructed = reconstructed.view(-1, 28, 28)
+        reconstructed = reconstructed.view(-1, 28, 28)
         return reconstructed
 
     def mse_loss(self, reconstructed, raw):
@@ -153,6 +156,7 @@ class Autoencoder(L.LightningModule):
         x, _ = train_batch
         x = x.view(x.size(0), -1)
         reconstructed = self.forward(x)
+        reconstructed = reconstructed.view(reconstructed.size(0), -1)
         loss = self.mse_loss(reconstructed, x)
         return {"loss": loss}
 
@@ -170,6 +174,7 @@ class Autoencoder(L.LightningModule):
         x, _ = val_batch
         x = x.view(x.size(0), -1)
         reconstructed = self.forward(x)
+        reconstructed = reconstructed.view(reconstructed.size(0), -1)
         loss = self.mse_loss(reconstructed, x)
         self.val_outputs.append(loss)
         return {"val_step_loss": loss}
@@ -196,6 +201,7 @@ class Autoencoder(L.LightningModule):
         x, _ = test_batch
         x = x.view(x.size(0), -1)
         reconstructed = self.forward(x)
+        reconstructed = reconstructed.view(reconstructed.size(0), -1)
         # Compute cosine similarity
         cos_sim = F.cosine_similarity(x, reconstructed, dim=0)
         self.test_outputs.append(cos_sim)
@@ -231,6 +237,14 @@ class Autoencoder(L.LightningModule):
         }
         return [self.optimizer], [self.scheduler]
 
+def print_auto_logged_info(r):
+    tags = {k: v for k, v in r.data.tags.items() if not k.startswith("mlflow.")}
+    artifacts = [f.path for f in MlflowClient().list_artifacts(r.info.run_id, "model")]
+    print(f"run_id: {r.info.run_id}")
+    print(f"artifacts: {artifacts}")
+    print(f"params: {r.data.params}")
+    print(f"metrics: {r.data.metrics}")
+    print(f"tags: {tags}")
 
 def cli_main():
     early_stopping = EarlyStopping(
@@ -248,14 +262,53 @@ def cli_main():
         save_config_callback=None,
         trainer_defaults={
             "callbacks": [early_stopping, checkpoint_callback, lr_logger],
-            "max_epochs": 5,
+            "max_epochs": 3,
             },
     )
-    if cli.trainer.global_rank == 0:
-        mlflow.pytorch.autolog()
+
     cli.trainer.fit(cli.model, datamodule=cli.datamodule)
     cli.trainer.test(ckpt_path="best", datamodule=cli.datamodule)
+   
+    # Get a sample input from the test dataset
+    sample_input, _ = next(iter(cli.datamodule.test_dataloader()))
+    
+    # Pass the sample input through the model to get the output
+    with torch.no_grad():
+        sample_output = cli.model(sample_input).detach()
 
+    return cli, sample_input, sample_output
+    
 
 if __name__ == "__main__":
-    cli_main()
+    # Load environment variables from .env file
+    load_dotenv()
+
+    # Access the environment variables
+    mlflow_port = os.getenv("MLFLOW_PORT")
+
+    mlflow.set_tracking_uri(f"http://127.0.0.1:{mlflow_port}")
+    # Create a new MLflow Experiment
+    mlflow.set_experiment("Pytorch Autoencoder Demo")
+    # Start an MLflow run
+    with mlflow.start_run(run_name = 'test1') as run:
+        # Auto log all MLflow entities
+        mlflow.pytorch.autolog(
+            log_every_n_epoch=1,
+            log_models=False, 
+            log_datasets=True,
+            extra_tags={
+                "Flavor": "Pytorch",
+                "Log Mode": "Manual",
+                },
+            )
+        
+        cli, sample_input, sample_output = cli_main()
+        # Convert both input and output to NumPy arrays, as mlflow Tensor-based schemas support numpy data types only.
+        sample_input = sample_input.numpy()
+        sample_output = sample_output.numpy()
+        # Infer the signature
+        signature = infer_signature(sample_input, sample_output)
+        mlflow.pytorch.log_model(cli.model, "MNIST Autoencoder", registered_model_name = 'MNIST Autoencoder', signature=signature)
+    # Fetch the auto logged parameters and metrics.
+    print_auto_logged_info(mlflow.get_run(run_id=run.info.run_id))
+
